@@ -97,8 +97,22 @@ def fetch_all(date_str):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--date", default=None, help="YYYY-MM-DD, default = bugun")
+    ap.add_argument("--debug", action="store_true", help="bitta kabinet uchun xom javobni ko'rsat")
     args = ap.parse_args()
     date_str = args.date or datetime.now(TZ).strftime("%Y-%m-%d")
+
+    if args.debug:
+        first_act = list(AD_ACCOUNTS.keys())[0]
+        url = f"https://graph.facebook.com/{API_VER}/{first_act}/insights"
+        params = {
+            "access_token": META_TOKEN,
+            "time_range": json.dumps({"since": date_str, "until": date_str}),
+            "fields": "spend,impressions,clicks,ctr,cpm,actions,account_name,account_currency",
+            "level": "account",
+        }
+        data = _get(url, params)
+        print(json.dumps(data, indent=2, ensure_ascii=False))
+        sys.exit(0)
 
     results = fetch_all(date_str)
     print(f"\n📊 Meta Ads — {date_str}\n" + "=" * 50)
