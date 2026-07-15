@@ -36,33 +36,43 @@ def _get(url, params):
         body = e.read().decode("utf-8", errors="ignore")
         raise RuntimeError(f"HTTP {e.code}: {body}") from e
 
+USD_TO_UZS = float(os.environ.get("USD_TO_UZS", "12650"))  # taxminiy kurs, kerak bo'lsa yangilanadi
+
 def fetch_account_insights(act_id, date_str):
     """Возвращает дневную статистику по одному рекламному кабинету."""
     url = f"https://graph.facebook.com/{API_VER}/{act_id}/insights"
     params = {
         "access_token": META_TOKEN,
         "time_range": json.dumps({"since": date_str, "until": date_str}),
-        "fields": "spend,impressions,clicks,ctr,cpm,actions,account_name",
+        "fields": "spend,impressions,clicks,ctr,cpm,actions,account_name,account_currency",
         "level": "account",
     }
     data = _get(url, params)
     rows = data.get("data", [])
     if not rows:
         return {"spend": 0, "impressions": 0, "clicks": 0, "leads": 0,
-                "ctr": 0, "cpm": 0, "account_name": ""}
+                "ctr": 0, "cpm": 0, "account_name": "", "currency": "USD"}
     r = rows[0]
     leads = 0
     for a in r.get("actions", []):
-        # типы событий лида в Meta: lead, onsite_conversion.lead_grouped, offsite_conversion.fb_pixel_lead
-        if "lead" in a.get("action_type", "").lower():
+        # ФАҚАТ асл "lead" event — бошқа "*_add_meta_leads" / "*_grouped" турлари ДУБЛИКАТ,
+        # уларни қўшмаймиз (акс ҳолда лид сони бир неча марта ошиб кетади)
+        if a.get("action_type") == "lead":
             leads += int(float(a.get("value", 0)))
+    currency = r.get("account_currency", "USD")
+    spend = float(r.get("spend", 0))
+    impressions = int(r.get("impressions", 0))
+    # агар кабинет USD'да юритилса — сўмга ўтказамиз (харажат ва CPL сўмда чиқиши учун)
+    spend_uzs = spend * USD_TO_UZS if currency == "USD" else spend
     return {
-        "spend": float(r.get("spend", 0)),
-        "impressions": int(r.get("impressions", 0)),
+        "spend": spend_uzs,
+        "spend_raw": spend,
+        "currency": currency,
+        "impressions": impressions,
         "clicks": int(r.get("clicks", 0)),
         "leads": leads,
         "ctr": float(r.get("ctr", 0)),
-        "cpm": float(r.get("cpm", 0)),
+        "cpm": float(r.get("cpm", 0)) * (USD_TO_UZS if currency == "USD" else 1),
         "account_name": r.get("account_name", ""),
     }
 
@@ -88,7 +98,8 @@ def fetch_all(date_str):
         out.append({
             "act_id": act_id, "targetolog": info["targetolog"], "brand": info["brand"],
             "sana": date_str,
-            "spend": raw["spend"], "impressions": raw["impressions"],
+            "spend": raw["spend"], "spend_raw": raw["spend_raw"], "currency": raw["currency"],
+            "impressions": raw["impressions"],
             "clicks": raw["clicks"], "leads": raw["leads"],
             "cpl": m["cpl"], "ctr": m["ctr"], "cpm": m["cpm"], "cr": m["cr"],
         })
@@ -115,12 +126,13 @@ if __name__ == "__main__":
         sys.exit(0)
 
     results = fetch_all(date_str)
-    print(f"\n📊 Meta Ads — {date_str}\n" + "=" * 50)
+    print(f"\n📊 Meta Ads — {date_str} (barcha summalar so'mda, kurs {USD_TO_UZS})\n" + "=" * 70)
     for r in results:
         if "error" in r:
             print(f"❌ {r['targetolog']} ({r['brand']}) — XATO: {r['error'][:120]}")
             continue
+        orig = f"(${r['spend_raw']:.2f})" if r["currency"] == "USD" else ""
         print(f"👤 {r['targetolog']:10s} | {r['brand']:16s} | "
-              f"Xarajat: {r['spend']:>10,.0f} | Lid: {r['leads']:>3d} | "
-              f"CPL: {r['cpl']:>9,.0f} | CTR: {r['ctr']:.2f}%")
-    print("=" * 50)
+              f"Xarajat: {r['spend']:>10,.0f} so'm {orig} | Lid: {r['leads']:>3d} | "
+              f"CPL: {r['cpl']:>10,.0f} | CTR: {r['ctr']:.2f}%")
+    print("=" * 70)
