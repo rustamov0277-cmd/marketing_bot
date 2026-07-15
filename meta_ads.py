@@ -50,8 +50,8 @@ def fetch_account_insights(act_id, date_str):
     data = _get(url, params)
     rows = data.get("data", [])
     if not rows:
-        return {"spend": 0, "impressions": 0, "clicks": 0, "leads": 0,
-                "ctr": 0, "cpm": 0, "account_name": "", "currency": "USD"}
+        return {"spend": 0, "spend_raw": 0, "currency": "USD", "impressions": 0, "clicks": 0, "leads": 0,
+                "ctr": 0, "cpm": 0, "account_name": ""}
     r = rows[0]
     leads = 0
     for a in r.get("actions", []):
