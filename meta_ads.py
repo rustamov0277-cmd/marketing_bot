@@ -36,7 +36,8 @@ def _get(url, params):
         body = e.read().decode("utf-8", errors="ignore")
         raise RuntimeError(f"HTTP {e.code}: {body}") from e
 
-USD_TO_UZS = float(os.environ.get("USD_TO_UZS", "12650"))  # taxminiy kurs, kerak bo'lsa yangilanadi
+USD_TO_UZS = float(os.environ.get("USD_TO_UZS", "12650"))
+CONVERT_TO_UZS = os.environ.get("MK_CONVERT_UZS", "0") == "1"  # 0 = $ da qoladi (default)
 
 def fetch_account_insights(act_id, date_str):
     """Возвращает дневную статистику по одному рекламному кабинету."""
@@ -63,7 +64,7 @@ def fetch_account_insights(act_id, date_str):
     spend = float(r.get("spend", 0))
     impressions = int(r.get("impressions", 0))
     # агар кабинет USD'да юритилса — сўмга ўтказамиз (харажат ва CPL сўмда чиқиши учун)
-    spend_uzs = spend * USD_TO_UZS if currency == "USD" else spend
+    spend_uzs = spend * USD_TO_UZS if (currency == "USD" and CONVERT_TO_UZS) else spend
     return {
         "spend": spend_uzs,
         "spend_raw": spend,
@@ -72,7 +73,7 @@ def fetch_account_insights(act_id, date_str):
         "clicks": int(r.get("clicks", 0)),
         "leads": leads,
         "ctr": float(r.get("ctr", 0)),
-        "cpm": float(r.get("cpm", 0)) * (USD_TO_UZS if currency == "USD" else 1),
+        "cpm": float(r.get("cpm", 0)) * (USD_TO_UZS if (currency == "USD" and CONVERT_TO_UZS) else 1),
         "account_name": r.get("account_name", ""),
     }
 
@@ -126,13 +127,15 @@ if __name__ == "__main__":
         sys.exit(0)
 
     results = fetch_all(date_str)
-    print(f"\n📊 Meta Ads — {date_str} (barcha summalar so'mda, kurs {USD_TO_UZS})\n" + "=" * 70)
+    unit = "so'm" if CONVERT_TO_UZS else "$"
+    print(f"\n📊 Meta Ads — {date_str} (barcha summalar {unit} da)\n" + "=" * 66)
     for r in results:
         if "error" in r:
             print(f"❌ {r['targetolog']} ({r['brand']}) — XATO: {r['error'][:120]}")
             continue
-        orig = f"(${r['spend_raw']:.2f})" if r["currency"] == "USD" else ""
+        spend_str = f"{r['spend']:,.0f} so'm" if CONVERT_TO_UZS else f"${r['spend']:,.2f}"
+        cpl_str = f"{r['cpl']:,.0f} so'm" if CONVERT_TO_UZS else f"${r['cpl']:,.2f}"
         print(f"👤 {r['targetolog']:10s} | {r['brand']:16s} | "
-              f"Xarajat: {r['spend']:>10,.0f} so'm {orig} | Lid: {r['leads']:>3d} | "
-              f"CPL: {r['cpl']:>10,.0f} | CTR: {r['ctr']:.2f}%")
-    print("=" * 70)
+              f"Xarajat: {spend_str:>14s} | Lid: {r['leads']:>3d} | "
+              f"CPL: {cpl_str:>12s} | CTR: {r['ctr']:.2f}%")
+    print("=" * 66)
