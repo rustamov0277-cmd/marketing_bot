@@ -15,6 +15,7 @@ TZ = timezone(timedelta(hours=5))
 WEBHOOK = os.environ.get("BITRIX_WEBHOOK", "").rstrip("/") + "/"
 
 FIELD_TARGETOLOG = "UF_CRM_1772197583641"
+DELIVERY_CATEGORY_ID = "6"  # "Доставка" воронкаси — фақат шу ерда реал сотув суммаси бор
 
 # ID -> targetolog nomi (Bitrix24'dan olingan ro'yxat)
 TARGETOLOG_MAP = {
@@ -48,7 +49,7 @@ def fetch_deals(date_from, date_to):
                 "<=DATE_CREATE": date_to + "T23:59:59",
             },
             "select": ["ID", "TITLE", "OPPORTUNITY", "CURRENCY_ID",
-                      "STAGE_ID", "STAGE_SEMANTIC_ID", "DATE_CREATE",
+                      "CATEGORY_ID", "STAGE_ID", "STAGE_SEMANTIC_ID", "DATE_CREATE",
                       FIELD_TARGETOLOG],
             "start": start,
         }
@@ -64,19 +65,24 @@ def fetch_deals(date_from, date_to):
     return all_deals
 
 def summarize(deals):
-    """Группировка по таргетологу: жами лид, ютилган (сотилган), сотув суммаси."""
+    """Группировка по таргетологу: жами лид, сотилган (ФАҚАТ Доставка+won), сотув суммаси.
+    'Белгиланмаган' (таргетологсиз — директ/TikTok/YouTube/кирувчи қўнғироқ) алоҳида ҳисобланади,
+    таргетолог статистикасига аралаштирилмайди."""
     stats = {}
     for d in deals:
         tid = str(d.get(FIELD_TARGETOLOG) or "")
-        name = TARGETOLOG_MAP.get(tid, "Noma'lum(" + tid + ")" if tid else "Belgilanmagan")
+        name = TARGETOLOG_MAP.get(tid, "Noma'lum(" + tid + ")") if tid else "Belgilanmagan (boshqa kanal)"
         s = stats.setdefault(name, {"jami": 0, "sotildi": 0, "sotuv_summa": 0.0,
                                     "jarayonda": 0, "yoqotildi": 0})
         s["jami"] += 1
+        category = str(d.get("CATEGORY_ID", ""))
         semantic = d.get("STAGE_SEMANTIC_ID", "")
-        if semantic == "S":  # won
+        # реал сотув — ФАҚАТ Доставка воронкасида (боshqa voronkada "won" bo'lsa ham,
+        # bu faqat keyingi bosqichga o'tgani, real sotuv emas)
+        if category == DELIVERY_CATEGORY_ID and semantic == "S":
             s["sotildi"] += 1
             s["sotuv_summa"] += float(d.get("OPPORTUNITY") or 0)
-        elif semantic == "F":  # lost
+        elif semantic == "F":
             s["yoqotildi"] += 1
         else:
             s["jarayonda"] += 1
@@ -105,6 +111,17 @@ if __name__ == "__main__":
     print(f"{'Targetolog':12s} | {'Jami':>5s} | {'Sotildi':>8s} | {'Jarayon':>8s} | "
           f"{'Yo\'qotildi':>10s} | {'Sotuv summa':>14s}")
     print("-" * 75)
-    for name, s in sorted(stats.items(), key=lambda x: -x[1]["sotuv_summa"]):
+    named = {k: v for k, v in stats.items() if not k.startswith("Belgilanmagan")}
+    other = {k: v for k, v in stats.items() if k.startswith("Belgilanmagan")}
+    for name, s in sorted(named.items(), key=lambda x: -x[1]["sotuv_summa"]):
         print(f"{name:12s} | {s['jami']:>5d} | {s['sotildi']:>8d} | "
               f"{s['jarayonda']:>8d} | {s['yoqotildi']:>10d} | {s['sotuv_summa']:>14,.0f}")
+    if other:
+        print("-" * 75)
+        for name, s in other.items():
+            print(f"{name:12s} | {s['jami']:>5d} | {s['sotildi']:>8d} | "
+                  f"{s['jarayonda']:>8d} | {s['yoqotildi']:>10d} | {s['sotuv_summa']:>14,.0f}")
+    print("\nEslatma: 'Sotildi' va 'Sotuv summa' FAQAT 'Доставка' voronkasidagi "
+          "yakunlangan sdelkalardan olinadi.\nLid DATE_CREATE sanasi bilan olinadi, "
+          "lekin sotuv (Doставка) bir necha kun kechikishi mumkin —\nshuning uchun "
+          "bugungi lidlarning sotuvi hali ko'rinmasligi mumkin (normal holat).")
