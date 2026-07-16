@@ -36,7 +36,8 @@ def _book():
 
 def _num(v):
     try:
-        return float(str(v).replace(",", "").replace(" ", "") or 0)
+        s = str(v).replace("$", "").replace(",", ".").replace(" ", "").strip()
+        return float(s or 0)
     except ValueError:
         return 0.0
 
